@@ -1,22 +1,16 @@
 use std::net::SocketAddr;
 
 use axum::{extract::Query, routing::get, Json, Router};
-use chrono::Utc;
 use chrono_tz::Tz;
 use lazy_static::lazy_static;
 use reqwest::StatusCode;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tzf_rs::Finder;
 
 #[derive(Deserialize)]
-struct Coords {
-    lon: f64,
-    lat: f64,
-}
-
-#[derive(Deserialize)]
 struct SearchParams {
-    coords: Coords,
+    lat: f64,
+    lon: f64,
 }
 
 lazy_static! {
@@ -44,8 +38,9 @@ async fn check_health() -> (StatusCode, String) {
     )
 }
 
-async fn get_time_zone(search: Query<SearchParams>) -> (StatusCode, Json<Tz>) {
-    let zone = FINDER.get_tz_name(search.coords.lon, search.coords.lat);
+async fn get_time_zone(search: Query<SearchParams>) -> (StatusCode, Json<String>) {
+    let zone = FINDER.get_tz_name(search.lon, search.lat);
     let tz: Tz = zone.parse().unwrap();
+    let tz = tz.name().to_owned();
     (StatusCode::OK, Json(tz))
 }
