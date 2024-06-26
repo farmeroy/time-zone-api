@@ -1,7 +1,5 @@
-use std::net::SocketAddr;
-
-use axum::{extract::Query, routing::get, Json, Router};
 use chrono_tz::Tz;
+use lambda_runtime::service_fn;
 use lazy_static::lazy_static;
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -19,23 +17,9 @@ lazy_static! {
 
 #[tokio::main]
 async fn main() {
-    let app = router().await;
-    let address = SocketAddr::from(([0, 0, 0, 0], 8080));
-    let listener = tokio::net::TcpListener::bind(address).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
-}
-
-async fn router() -> Router {
-    Router::new()
-        .route("/", get(check_health))
-        .route("/tz", get(get_time_zone))
-}
-
-async fn check_health() -> (StatusCode, String) {
-    (
-        StatusCode::OK,
-        String::from("Hello from the time zone finder!"),
-    )
+    let func = service_fn(get_time_zone);
+    lambda_runtime::run(func).await?;
+    Ok(())
 }
 
 async fn get_time_zone(search: Query<SearchParams>) -> (StatusCode, Json<String>) {
