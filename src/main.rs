@@ -1,30 +1,42 @@
 use chrono_tz::Tz;
-use lambda_runtime::service_fn;
-use lazy_static::lazy_static;
-use reqwest::StatusCode;
-use serde::Deserialize;
+use lambda_http::{run, service_fn, tracing, Error, IntoResponse, Request, RequestExt, Response};
+use serde_json::json;
 use tzf_rs::Finder;
 
-#[derive(Deserialize)]
-struct SearchParams {
-    lat: f64,
-    lon: f64,
-}
-
-lazy_static! {
-    static ref FINDER: Finder = Finder::new();
+async fn function_handler(event: Request) -> Result<impl IntoResponse, Error> {
+    let lat: f64 = event
+        .query_string_parameters_ref()
+        .and_then(|params| params.first("lat"))
+        .unwrap()
+        .to_owned()
+        .parse()
+        .unwrap();
+    let lon: f64 = event
+        .query_string_parameters_ref()
+        .and_then(|params| params.first("lon"))
+        .unwrap()
+        .to_owned()
+        .parse()
+        .unwrap();
+    let finder = Finder::new();
+    let zone = finder.get_tz_name(lon, lat);
+    let tz: Tz = zone.parse().unwrap();
+    let resp = Response::builder()
+        .status(200)
+        .header("content-type", "application/json")
+        .body(
+            json!({
+                "timezone": tz.name()
+            })
+            .to_string(),
+        )
+        .map_err(Box::new)?;
+    Ok(resp)
 }
 
 #[tokio::main]
-async fn main() {
-    let func = service_fn(get_time_zone);
-    lambda_runtime::run(func).await?;
-    Ok(())
-}
+async fn main() -> Result<(), Error> {
+    tracing::init_default_subscriber();
 
-async fn get_time_zone(search: Query<SearchParams>) -> (StatusCode, Json<String>) {
-    let zone = FINDER.get_tz_name(search.lon, search.lat);
-    let tz: Tz = zone.parse().unwrap();
-    let tz = tz.name().to_owned();
-    (StatusCode::OK, Json(tz))
+    run(service_fn(function_handler)).await
 }
