@@ -7,10 +7,8 @@ use lambda_http::{
 use lazy_static::lazy_static;
 use tzf_rs::Finder;
 
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-#[derive(Deserialize)]
 struct Coordinates {
     lat: String,
     lon: String,
@@ -20,15 +18,15 @@ impl TryFrom<QueryMap> for Coordinates {
     type Error = &'static str;
 
     fn try_from(query: QueryMap) -> Result<Self, Self::Error> {
-        let lat = query
-            .first("lat")
-            .ok_or("Missing 'lat' parameter")?
-            .to_string();
-        let lon = query
-            .first("lon")
-            .ok_or("Missing 'lon' parameter")?
-            .to_string();
-        Ok(Coordinates { lat, lon })
+        match (query.first("lat"), query.first("lon")) {
+            (Some(lat), Some(lon)) => Ok(Coordinates {
+                lat: lat.to_owned(),
+                lon: lon.to_owned(),
+            }),
+            (None, None) => Err("Missing query params"),
+            (None, _) => Err("Missing 'lat' param"),
+            (_, None) => Err("Missing 'lon' param"),
+        }
     }
 }
 
@@ -49,10 +47,16 @@ fn get_tz_name(lat: &str, lon: &str) -> Result<&'static str, ParseFloatError> {
 }
 
 async fn function_handler(event: Request) -> Result<impl IntoResponse, Error> {
-    let coords: Coordinates = event
-        .query_string_parameters()
-        .try_into()
-        .map_err(|_| "Missing or invalid query parameters")?;
+    let coords = match Coordinates::try_from(event.query_string_parameters()) {
+        Ok(c) => c,
+        Err(e) => {
+            let resp = Response::builder()
+                .status(400)
+                .header("content-type", "application/json")
+                .body(json!({"error": e.to_string()}).to_string())?;
+            return Ok(resp);
+        }
+    };
 
     let body = match get_tz_name(&coords.lat, &coords.lon) {
         Ok(timezone) => json!({ "timezone": timezone }).to_string(),
