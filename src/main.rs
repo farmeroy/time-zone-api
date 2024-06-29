@@ -1,10 +1,36 @@
 use std::num::ParseFloatError;
 
-use chrono_tz::Tz;
-use lambda_http::{run, service_fn, tracing, Error, IntoResponse, Request, RequestExt, Response};
+use lambda_http::{
+    aws_lambda_events::query_map::QueryMap, run, service_fn, tracing, Error, IntoResponse, Request,
+    RequestExt, Response,
+};
 use lazy_static::lazy_static;
-use serde_json::json;
 use tzf_rs::Finder;
+
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+
+#[derive(Deserialize)]
+struct Coordinates {
+    lat: String,
+    lon: String,
+}
+
+impl TryFrom<QueryMap> for Coordinates {
+    type Error = &'static str;
+
+    fn try_from(query: QueryMap) -> Result<Self, Self::Error> {
+        let lat = query
+            .first("lat")
+            .ok_or("Missing 'lat' parameter")?
+            .to_string();
+        let lon = query
+            .first("lon")
+            .ok_or("Missing 'lon' parameter")?
+            .to_string();
+        Ok(Coordinates { lat, lon })
+    }
+}
 
 lazy_static! {
     static ref FINDER: Finder = Finder::new();
@@ -23,39 +49,21 @@ fn get_tz_name(lat: &str, lon: &str) -> Result<&'static str, ParseFloatError> {
 }
 
 async fn function_handler(event: Request) -> Result<impl IntoResponse, Error> {
-    let lat_query: Option<&str> = match event.query_string_parameters_ref() {
-        Some(params) => params.first("lat"),
-        None => None,
-    };
-    let lon_query: Option<&str> = match event.query_string_parameters_ref() {
-        Some(params) => params.first("lon"),
-        None => None,
-    };
-    let body;
-    if lat_query.is_some() && lon_query.is_some() {
-        body = match get_tz_name(lat_query.unwrap(), lon_query.unwrap()) {
-            Ok(res) => json!({
-                "timezone": res
-            })
-            .to_string(),
-            Err(e) => json!({
-                "error": e.to_string()
-            })
-            .to_string(),
-        }
-    } else {
-        body = json!({
-            "error": "Missing query"
-        })
-        .to_string();
+    let coords: Coordinates = event
+        .query_string_parameters()
+        .try_into()
+        .map_err(|_| "Missing or invalid query parameters")?;
+
+    let body = match get_tz_name(&coords.lat, &coords.lon) {
+        Ok(timezone) => json!({ "timezone": timezone }).to_string(),
+        Err(e) => json!({ "error": e.to_string() }).to_string(),
     };
 
-    //let tz: Tz = zone.parse().unwrap();
     let resp = Response::builder()
         .status(200)
         .header("content-type", "application/json")
-        .body(body)
-        .map_err(Box::new)?;
+        .body(body)?;
+
     Ok(resp)
 }
 
