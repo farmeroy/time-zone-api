@@ -1,10 +1,11 @@
 use std::num::ParseFloatError;
 
 use lambda_http::{
-    aws_lambda_events::query_map::QueryMap, run, service_fn, tracing, Error, IntoResponse, Request,
-    RequestExt, Response,
+    aws_lambda_events::query_map::QueryMap, http::Method, run, service_fn, tower::ServiceBuilder,
+    tracing, Error, IntoResponse, Request, RequestExt, Response,
 };
 use lazy_static::lazy_static;
+use tower_http::cors::{Any, CorsLayer};
 use tzf_rs::Finder;
 
 use serde_json::json;
@@ -46,7 +47,7 @@ fn get_tz_name(lat: &str, lon: &str) -> Result<&'static str, ParseFloatError> {
     }
 }
 
-async fn function_handler(event: Request) -> Result<impl IntoResponse, Error> {
+async fn func(event: Request) -> Result<Response<String>, Error> {
     let coords = match Coordinates::try_from(event.query_string_parameters()) {
         Ok(c) => c,
         Err(e) => {
@@ -66,7 +67,8 @@ async fn function_handler(event: Request) -> Result<impl IntoResponse, Error> {
     let resp = Response::builder()
         .status(200)
         .header("content-type", "application/json")
-        .body(body)?;
+        .body(body)
+        .expect("Failed to render response");
 
     Ok(resp)
 }
@@ -75,5 +77,16 @@ async fn function_handler(event: Request) -> Result<impl IntoResponse, Error> {
 async fn main() -> Result<(), Error> {
     tracing::init_default_subscriber();
 
-    run(service_fn(function_handler)).await
+    // Define a layer to inject CORS headers
+    let cors_layer = CorsLayer::new()
+        .allow_methods(vec![Method::GET])
+        .allow_origin(Any);
+
+    let handler = ServiceBuilder::new()
+        // Add the CORS layer to the service
+        .layer(cors_layer)
+        .service(service_fn(func));
+
+    run(handler).await?;
+    Ok(())
 }
