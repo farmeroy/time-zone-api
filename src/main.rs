@@ -2,7 +2,7 @@ use std::num::ParseFloatError;
 
 use lambda_http::{
     aws_lambda_events::query_map::QueryMap, http::Method, run, service_fn, tower::ServiceBuilder,
-    tracing, Error, IntoResponse, Request, RequestExt, Response,
+    tracing, Error, Request, RequestExt, Response,
 };
 use lazy_static::lazy_static;
 use tower_http::cors::{Any, CorsLayer};
